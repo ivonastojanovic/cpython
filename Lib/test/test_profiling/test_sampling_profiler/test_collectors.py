@@ -435,11 +435,11 @@ class TestSampleProfilerComponents(unittest.TestCase):
         strings = data.get("strings", [])
         name = resolve_name(data, strings)
         self.assertTrue(name.startswith("Program Root: "))
-        self.assertIn("func2 (file.py:20)", name)  # formatted name
+        self.assertIn("func2 (file:20)", name)
         children = data.get("children", [])
         self.assertEqual(len(children), 1)
         child = children[0]
-        self.assertIn("func1 (file.py:10)", resolve_name(child, strings))
+        self.assertIn("func1 (file:10)", resolve_name(child, strings))
         self.assertEqual(child["value"], 1)
 
     def test_flamegraph_collector_export(self):
