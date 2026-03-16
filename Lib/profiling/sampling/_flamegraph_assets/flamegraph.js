@@ -64,6 +64,9 @@ function resolveStringIndices(node) {
   if (typeof resolved.funcname === 'number') {
     resolved.funcname = resolveString(resolved.funcname);
   }
+  if (typeof resolved.module_name === 'number') {
+    resolved.module_name = resolveString(resolved.module_name);
+  }
 
   if (Array.isArray(resolved.source)) {
     resolved.source = resolved.source.map(index =>
@@ -76,6 +79,11 @@ function resolveStringIndices(node) {
   }
 
   return resolved;
+}
+
+// Escape HTML special characters
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ============================================================================
@@ -201,6 +209,7 @@ function setupLogos() {
 function updateStatusBar(nodeData, rootValue) {
   const funcname = resolveString(nodeData.funcname) || resolveString(nodeData.name) || "--";
   const filename = resolveString(nodeData.filename) || "";
+  const moduleName = resolveString(nodeData.module_name) || "";
   const lineno = nodeData.lineno;
   const timeMs = (nodeData.value / 1000).toFixed(2);
   const percent = rootValue > 0 ? ((nodeData.value / rootValue) * 100).toFixed(1) : "0.0";
@@ -222,8 +231,7 @@ function updateStatusBar(nodeData, rootValue) {
 
   const fileEl = document.getElementById('status-file');
   if (fileEl && filename && filename !== "~") {
-    const basename = filename.split('/').pop();
-    fileEl.textContent = lineno ? `${basename}:${lineno}` : basename;
+    fileEl.textContent = lineno ? `${moduleName}:${lineno}` : moduleName;
   }
 
   const funcEl = document.getElementById('status-func');
@@ -272,6 +280,7 @@ function createPythonTooltip(data) {
 
     const funcname = resolveString(d.data.funcname) || resolveString(d.data.name);
     const filename = resolveString(d.data.filename) || "";
+    const moduleName = escapeHtml(resolveString(d.data.module_name) || "");
     const isSpecialFrame = filename === "~";
 
     // Build source section
@@ -280,7 +289,7 @@ function createPythonTooltip(data) {
       const sourceLines = source
         .map((line) => {
           const isCurrent = line.startsWith("→");
-          const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          const escaped = escapeHtml(line);
           return `<div class="tooltip-source-line${isCurrent ? ' current' : ''}">${escaped}</div>`;
         })
         .join("");
@@ -340,7 +349,7 @@ function createPythonTooltip(data) {
     }
 
     const fileLocationHTML = isSpecialFrame ? "" : `
-      <div class="tooltip-location">${filename}${d.data.lineno ? ":" + d.data.lineno : ""}</div>`;
+      <div class="tooltip-location">${moduleName}${d.data.lineno ? ":" + d.data.lineno : ""}</div>`;
 
     const tooltipHTML = `
       <div class="tooltip-header">
@@ -509,24 +518,24 @@ function updateSearchHighlight(searchTerm, searchInput) {
         const name = resolveString(d.data.name) || "";
         const funcname = resolveString(d.data.funcname) || "";
         const filename = resolveString(d.data.filename) || "";
+        const moduleName = resolveString(d.data.module_name) || "";
         const lineno = d.data.lineno;
         const term = searchTerm.toLowerCase();
 
-        // Check if search term looks like file:line pattern
+        // Check if search term looks like module:line pattern
         const fileLineMatch = term.match(/^(.+):(\d+)$/);
         let matches = false;
 
         if (fileLineMatch) {
-          // Exact file:line matching
           const searchFile = fileLineMatch[1];
           const searchLine = parseInt(fileLineMatch[2], 10);
-          const basename = filename.split('/').pop().toLowerCase();
-          matches = basename.includes(searchFile) && lineno === searchLine;
+          matches = moduleName.toLowerCase().includes(searchFile) && lineno === searchLine;
         } else {
           // Regular substring search
           matches =
             name.toLowerCase().includes(term) ||
             funcname.toLowerCase().includes(term) ||
+            moduleName.toLowerCase().includes(term) ||
             filename.toLowerCase().includes(term);
         }
 
@@ -894,6 +903,7 @@ function populateStats(data) {
 
     let filename = resolveString(node.filename);
     let funcname = resolveString(node.funcname);
+    let moduleName = resolveString(node.module_name);
 
     if (!filename || !funcname) {
       const nameStr = resolveString(node.name);
@@ -908,6 +918,7 @@ function populateStats(data) {
 
     filename = filename || 'unknown';
     funcname = funcname || 'unknown';
+    moduleName = moduleName || 'unknown';
 
     if (filename !== 'unknown' && funcname !== 'unknown' && node.value > 0) {
       let childrenValue = 0;
@@ -924,12 +935,14 @@ function populateStats(data) {
         existing.directPercent = (existing.directSamples / totalSamples) * 100;
         if (directSamples > existing.maxSingleSamples) {
           existing.filename = filename;
+          existing.module_name = moduleName;
           existing.lineno = node.lineno || '?';
           existing.maxSingleSamples = directSamples;
         }
       } else {
         functionMap.set(funcKey, {
           filename: filename,
+          module_name: moduleName,
           lineno: node.lineno || '?',
           funcname: funcname,
           directSamples,
@@ -964,6 +977,7 @@ function populateStats(data) {
       const h = hotSpots[i];
       const filename = h.filename || 'unknown';
       const lineno = h.lineno ?? '?';
+      const moduleName = h.module_name || 'unknown';
       const isSpecialFrame = filename === '~' && (lineno === 0 || lineno === '?');
 
       let funcDisplay = h.funcname || 'unknown';
@@ -974,8 +988,7 @@ function populateStats(data) {
         if (isSpecialFrame) {
           fileEl.textContent = '--';
         } else {
-          const basename = filename !== 'unknown' ? filename.split('/').pop() : 'unknown';
-          fileEl.textContent = `${basename}:${lineno}`;
+          fileEl.textContent = `${moduleName}:${lineno}`;
         }
       }
       if (percentEl) percentEl.textContent = `${h.directPercent.toFixed(1)}%`;
@@ -991,8 +1004,9 @@ function populateStats(data) {
     if (card) {
       if (i < hotSpots.length && hotSpots[i]) {
         const h = hotSpots[i];
-        const basename = h.filename !== 'unknown' ? h.filename.split('/').pop() : '';
-        const searchTerm = basename && h.lineno !== '?' ? `${basename}:${h.lineno}` : h.funcname;
+        const moduleName = h.module_name || 'unknown';
+        const hasValidLocation = moduleName !== 'unknown' && h.lineno !== '?';
+        const searchTerm = hasValidLocation ? `${moduleName}:${h.lineno}` : h.funcname;
         card.dataset.searchterm = searchTerm;
         card.onclick = () => searchForHotspot(searchTerm);
         card.style.cursor = 'pointer';
@@ -1147,6 +1161,7 @@ function accumulateInvertedNode(parent, stackFrame, leaf) {
       value: 0,
       children: {},
       filename: stackFrame.filename,
+      module_name: stackFrame.module_name,
       lineno: stackFrame.lineno,
       funcname: stackFrame.funcname,
       source: stackFrame.source,
