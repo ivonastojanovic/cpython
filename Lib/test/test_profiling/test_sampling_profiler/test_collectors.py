@@ -430,7 +430,7 @@ class TestSampleProfilerComponents(unittest.TestCase):
         )
         self.assertIsInstance(name, str)
         self.assertTrue(name.startswith("Program Root: "))
-        self.assertIn("func2 (file:20)", name)
+        self.assertIn("func2 (file.py:20)", name)
         children = data.get("children", [])
         self.assertEqual(len(children), 1)
         child = children[0]
@@ -441,7 +441,7 @@ class TestSampleProfilerComponents(unittest.TestCase):
             and 0 <= child_name_index < len(strings)
             else str(child_name_index)
         )
-        self.assertIn("func1 (file:10)", child_name)
+        self.assertIn("func1 (file.py:10)", child_name)
         self.assertEqual(child["value"], 1)
 
     def test_flamegraph_collector_export(self):

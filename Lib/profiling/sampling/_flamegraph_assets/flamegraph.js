@@ -6,6 +6,7 @@ let normalData = null;
 let invertedData = null;
 let currentThreadFilter = 'all';
 let isInverted = false;
+let useModuleNames = true;
 
 // Heat colors are now defined in CSS variables (--heat-1 through --heat-8)
 // and automatically switch with theme changes - no JS color arrays needed!
@@ -67,6 +68,9 @@ function resolveStringIndices(node) {
   if (typeof resolved.module_name === 'number') {
     resolved.module_name = resolveString(resolved.module_name);
   }
+  if (typeof resolved.name_module === 'number') {
+    resolved.name_module = resolveString(resolved.name_module);
+  }
 
   if (Array.isArray(resolved.source)) {
     resolved.source = resolved.source.map(index =>
@@ -84,6 +88,14 @@ function resolveStringIndices(node) {
 // Escape HTML special characters
 function escapeHtml(str) {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Get display path based on user preference (module name or basename)
+function getDisplayName(moduleName, filename) {
+  if (useModuleNames) {
+    return moduleName || filename;
+  }
+  return filename ? filename.split('/').pop() : filename;
 }
 
 // ============================================================================
@@ -231,7 +243,8 @@ function updateStatusBar(nodeData, rootValue) {
 
   const fileEl = document.getElementById('status-file');
   if (fileEl && filename && filename !== "~") {
-    fileEl.textContent = lineno ? `${moduleName}:${lineno}` : moduleName;
+    const displayName = getDisplayName(moduleName, filename);
+    fileEl.textContent = lineno ? `${displayName}:${lineno}` : displayName;
   }
 
   const funcEl = document.getElementById('status-func');
@@ -280,7 +293,8 @@ function createPythonTooltip(data) {
 
     const funcname = resolveString(d.data.funcname) || resolveString(d.data.name);
     const filename = resolveString(d.data.filename) || "";
-    const moduleName = escapeHtml(resolveString(d.data.module_name) || "");
+    const moduleName = resolveString(d.data.module_name) || "";
+    const displayName = escapeHtml(useModuleNames ? (moduleName || filename) : filename);
     const isSpecialFrame = filename === "~";
 
     // Build source section
@@ -349,7 +363,7 @@ function createPythonTooltip(data) {
     }
 
     const fileLocationHTML = isSpecialFrame ? "" : `
-      <div class="tooltip-location">${moduleName}${d.data.lineno ? ":" + d.data.lineno : ""}</div>`;
+      <div class="tooltip-location">${displayName}${d.data.lineno ? ":" + d.data.lineno : ""}</div>`;
 
     const tooltipHTML = `
       <div class="tooltip-header">
@@ -479,6 +493,7 @@ function createFlamegraph(tooltip, rootValue) {
     .minFrameSize(1)
     .tooltip(tooltip)
     .inverted(true)
+    .getName(d => resolveString(useModuleNames ? d.data.name_module : d.data.name) || resolveString(d.data.name) || '')
     .setColorMapper(function (d) {
       // Root node should be transparent
       if (d.depth === 0) return 'transparent';
@@ -519,24 +534,24 @@ function updateSearchHighlight(searchTerm, searchInput) {
         const funcname = resolveString(d.data.funcname) || "";
         const filename = resolveString(d.data.filename) || "";
         const moduleName = resolveString(d.data.module_name) || "";
+        const displayName = getDisplayName(moduleName, filename);
         const lineno = d.data.lineno;
         const term = searchTerm.toLowerCase();
 
-        // Check if search term looks like module:line pattern
+        // Check if search term looks like path:line pattern
         const fileLineMatch = term.match(/^(.+):(\d+)$/);
         let matches = false;
 
         if (fileLineMatch) {
           const searchFile = fileLineMatch[1];
           const searchLine = parseInt(fileLineMatch[2], 10);
-          matches = moduleName.toLowerCase().includes(searchFile) && lineno === searchLine;
+          matches = displayName.toLowerCase().includes(searchFile) && lineno === searchLine;
         } else {
           // Regular substring search
           matches =
             name.toLowerCase().includes(term) ||
             funcname.toLowerCase().includes(term) ||
-            moduleName.toLowerCase().includes(term) ||
-            filename.toLowerCase().includes(term);
+            displayName.toLowerCase().includes(term);
         }
 
         if (matches) {
@@ -988,7 +1003,8 @@ function populateStats(data) {
         if (isSpecialFrame) {
           fileEl.textContent = '--';
         } else {
-          fileEl.textContent = `${moduleName}:${lineno}`;
+          const displayName = getDisplayName(moduleName, filename);
+          fileEl.textContent = `${displayName}:${lineno}`;
         }
       }
       if (percentEl) percentEl.textContent = `${h.directPercent.toFixed(1)}%`;
@@ -1005,8 +1021,10 @@ function populateStats(data) {
       if (i < hotSpots.length && hotSpots[i]) {
         const h = hotSpots[i];
         const moduleName = h.module_name || 'unknown';
-        const hasValidLocation = moduleName !== 'unknown' && h.lineno !== '?';
-        const searchTerm = hasValidLocation ? `${moduleName}:${h.lineno}` : h.funcname;
+        const filename = h.filename || 'unknown';
+        const displayName = getDisplayName(moduleName, filename);
+        const hasValidLocation = displayName !== 'unknown' && h.lineno !== '?';
+        const searchTerm = hasValidLocation ? `${displayName}:${h.lineno}` : h.funcname;
         card.dataset.searchterm = searchTerm;
         card.onclick = () => searchForHotspot(searchTerm);
         card.style.cursor = 'pointer';
@@ -1158,6 +1176,7 @@ function accumulateInvertedNode(parent, stackFrame, leaf) {
   if (!parent.children[key]) {
     parent.children[key] = {
       name: stackFrame.name,
+      name_module: stackFrame.name_module,
       value: 0,
       children: {},
       filename: stackFrame.filename,
@@ -1220,6 +1239,7 @@ function convertInvertDictToArray(node) {
 function generateInvertedFlamegraph(data) {
   const invertedRoot = {
     name: data.name,
+    name_module: data.name_module,
     value: data.value,
     children: {},
     stats: data.stats,
@@ -1258,6 +1278,19 @@ function toggleInvert() {
   renderFlamegraph(chart, dataToRender);
 }
 
+function togglePathDisplay() {
+  useModuleNames = !useModuleNames;
+  updateToggleUI('toggle-path-display', useModuleNames);
+  const dataToRender = isInverted ? invertedData : normalData;
+  const filteredData = currentThreadFilter !== 'all'
+    ? filterDataByThread(dataToRender, parseInt(currentThreadFilter))
+    : dataToRender;
+
+  const tooltip = createPythonTooltip(filteredData);
+  const chart = createFlamegraph(tooltip, filteredData.value);
+  renderFlamegraph(chart, filteredData);
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -1292,6 +1325,11 @@ function initFlamegraph() {
   const toggleInvertBtn = document.getElementById('toggle-invert');
   if (toggleInvertBtn) {
     toggleInvertBtn.addEventListener('click', toggleInvert);
+  }
+
+  const togglePathDisplayBtn = document.getElementById('toggle-path-display');
+  if (togglePathDisplayBtn) {
+    togglePathDisplayBtn.addEventListener('click', togglePathDisplay);
   }
 }
 
